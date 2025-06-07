@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>反转录批量计算器</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      padding: 40px;
+      background-color: #f8f9fa;
+    }
+    .card {
+      border-radius: 15px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .card-header {
+      font-weight: bold;
+      background-color: #e9ecef;
+    }
+    .btn-export {
+      float: right;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- 输入卡片 -->
+  <div class="card mb-4">
+    <div class="card-header">
+      参数输入
+    </div>
+    <div class="card-body">
+      <div class="row mb-3">
+        <div class="col-md-4">
+          <label for="totalVolume" class="form-label">体系总体积 (μL)：</label>
+          <input type="number" class="form-control" id="totalVolume" value="20" step="0.1">
+        </div>
+        <div class="col-md-4">
+          <label for="totalRNA" class="form-label">RNA总量 (μg)：</label>
+          <input type="number" class="form-control" id="totalRNA" value="1" step="0.01">
+        </div>
+        <div class="col-md-4">
+          <label for="mixDilution" class="form-label">反转录Mix稀释倍数：</label>
+          <input type="number" class="form-control" id="mixDilution" value="4" step="0.1">
+        </div>
+      </div>
+
+      <div class="row align-items-end">
+        <div class="col-md-9">
+          <label for="rnaConcentrations" class="form-label">RNA浓度列表 (μg/μL，用空格分隔)：</label>
+          <input type="text" class="form-control" id="rnaConcentrations" placeholder="如：1.0 0.8 0.5">
+        </div>
+        <div class="col-md-3 d-grid">
+          <button id="calcBtn" class="btn btn-primary mt-2" onclick="handleClick()">计算</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结果卡片 -->
+  <div class="card" id="resultCard" style="display: none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>计算结果</span>
+      <button id="exportBtn" class="btn btn-sm btn-success" onclick="exportToExcel()">导出结果</button>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table id="resultTable" class="table table-bordered text-center align-middle mb-0">
+          <thead>
+            <tr>
+              <th>序号</th>
+              <th>RNA浓度 (μg/μL)</th>
+              <th>RNA添加量 (μL)</th>
+              <th>反转录Mix添加量 (μL)</th>
+              <th>ddH<sub>2</sub>O添加量 (μL)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let isCalculated = false;
+
+  function handleClick() {
+    if (!isCalculated) {
+      calculate();
+    } else {
+      reset();
+    }
+  }
+
+  function calculate() {
+    const totalVol = parseFloat(document.getElementById("totalVolume").value);
+    const totalRNA = parseFloat(document.getElementById("totalRNA").value);
+    const mixDilution = parseFloat(document.getElementById("mixDilution").value);
+    const concInput = document.getElementById("rnaConcentrations").value.trim();
+
+    if (!concInput) {
+      alert("请输入至少一个RNA浓度！");
+      return;
+    }
+
+    const concentrations = concInput.split(/\s+/).map(parseFloat).filter(c => !isNaN(c) && c > 0);
+    if (concentrations.length === 0) {
+      alert("RNA浓度格式不正确！");
+      return;
+    }
+
+    const mixVolume = totalVol / mixDilution;
+    const tbody = document.getElementById("resultTable").querySelector("tbody");
+    tbody.innerHTML = "";
+
+    concentrations.forEach((conc, index) => {
+      const rnaVol = totalRNA / conc;
+      const waterVol = totalVol - rnaVol - mixVolume;
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${conc.toFixed(3)}</td>
+        <td>${rnaVol.toFixed(2)}</td>
+        <td>${mixVolume.toFixed(2)}</td>
+        <td>${waterVol.toFixed(2)}</td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    document.getElementById("resultCard").style.display = "block";
+    document.getElementById("calcBtn").textContent = "重置";
+    document.getElementById("calcBtn").classList.remove("btn-primary");
+    document.getElementById("calcBtn").classList.add("btn-secondary");
+    isCalculated = true;
+  }
+
+  function reset() {
+    document.getElementById("rnaConcentrations").value = "";
+    document.getElementById("resultTable").querySelector("tbody").innerHTML = "";
+    document.getElementById("resultCard").style.display = "none";
+    document.getElementById("calcBtn").textContent = "计算";
+    document.getElementById("calcBtn").classList.remove("btn-secondary");
+    document.getElementById("calcBtn").classList.add("btn-primary");
+    isCalculated = false;
+  }
+
+  function exportToExcel() {
+    const table = document.getElementById("resultTable");
+    const wb = XLSX.utils.table_to_book(table, { sheet: "反转录计算结果" });
+    XLSX.writeFile(wb, "反转录计算结果.xlsx");
+  }
+</script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

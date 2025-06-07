@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>qPCR试剂用量计算器</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 40px;
+    }
+    .card {
+      border-radius: 15px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .card-header {
+      background-color: #e9ecef;
+      font-weight: bold;
+    }
+    textarea {
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <!-- 参数配置 -->
+  <div class="card mb-4">
+    <div class="card-header">参数设置</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-2">
+          <label class="form-label">体系总体积 (μL/孔)</label>
+          <input type="number" class="form-control" id="volume" value="10" step="0.1">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">cDNA (μL/孔)</label>
+          <input type="number" class="form-control" id="cDNA" value="0.5" step="0.1">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Primer (μL/孔)</label>
+          <input type="number" class="form-control" id="primer" value="0.2" step="0.1">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">qPCR Mix (μL/孔)</label>
+          <input type="number" class="form-control" id="mix" value="5" step="0.1">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">ddH₂O (μL/孔)</label>
+          <input type="number" class="form-control" id="ddh2o" value="4.1" step="0.1">
+        </div>
+        <div class="col-md-1">
+          <label class="form-label">重复孔数</label>
+          <input type="number" class="form-control" id="replicates" value="3" step="1">
+        </div>
+        <div class="col-md-1">
+          <label class="form-label">冗余孔数</label>
+          <input type="number" class="form-control" id="redundancy" value="1" step="1">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 计划输入 -->
+  <div class="card mb-4">
+    <div class="card-header">qPCR计划（YAML格式）</div>
+    <div class="card-body">
+      <label for="yamlInput" class="form-label">计划内容：</label>
+      <textarea id="yamlInput" class="form-control" rows="10" placeholder="例如：&#10;HK-2:&#10;  - GAPDH&#10;  - CCDC78v1&#10;  - CCDC78v2&#10;..."></textarea>
+      <div class="mt-3 d-flex justify-content-between">
+        <button class="btn btn-primary" onclick="calculate()">计算</button>
+        <button class="btn btn-success" id="exportBtn" onclick="exportToExcel()" style="display:none;">导出结果</button>
+      </div>
+    </div>
+  </div>
+
+<!-- 结果区 -->
+<div id="resultSection" style="display: none;">
+    <div class="row g-4">
+      <!-- Samples 表格 -->
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between">
+            <span>Samples</span>
+          </div>
+          <div class="card-body table-responsive">
+            <table id="sampleTable" class="table table-bordered text-center align-middle"></table>
+          </div>
+        </div>
+      </div>
+  
+      <!-- Targets 表格 -->
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header d-flex justify-content-between">
+            <span>Targets</span>
+          </div>
+          <div class="card-body table-responsive">
+            <table id="targetTable" class="table table-bordered text-center align-middle"></table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+
+  function calculate() {
+    // 获取用户参数
+    const cDNA = parseFloat(document.getElementById("cDNA").value);
+    const primer = parseFloat(document.getElementById("primer").value);
+    const mix = parseFloat(document.getElementById("mix").value);
+    const ddh2o = parseFloat(document.getElementById("ddh2o").value);
+    const replicates = parseInt(document.getElementById("replicates").value);
+    const redundancy = parseInt(document.getElementById("redundancy").value);
+
+    let input = document.getElementById("yamlInput").value.trim();
+    if (!input) {
+      alert("请输入计划 YAML 内容！");
+      return;
+    }
+
+    let plan;
+    try {
+    plan = jsyaml.load(input);
+    } catch (e) {
+      alert("解析 YAML 失败，请检查格式。");
+      return;
+    }
+
+    const allTargets = [];
+    const samplesDict = {};
+    const targetsDict = {};
+
+    for (const [sample, targets] of Object.entries(plan)) {
+      targets.forEach(t => allTargets.push(t));
+      const numWells = replicates * targets.length + redundancy;
+      samplesDict[sample] = {
+        cDNA: (numWells * cDNA).toFixed(2),
+        ddH2O: (numWells * ddh2o).toFixed(2)
+      };
+    }
+
+    const counts = allTargets.reduce((acc, t) => {
+      acc[t] = (acc[t] || 0) + 1;
+      return acc;
+    }, {});
+
+    for (const [target, count] of Object.entries(counts)) {
+      const numWells = replicates * count + redundancy;
+      targetsDict[target] = {
+        F_Primer: (numWells * primer).toFixed(2),
+        R_Primer: (numWells * primer).toFixed(2),
+        Mix: (numWells * mix).toFixed(2)
+      };
+    }
+
+    renderTable("sampleTable", samplesDict, ["cDNA", "ddH2O"]);
+    renderTable("targetTable", targetsDict, ["F_Primer", "R_Primer", "Mix"]);
+
+    document.getElementById("resultSection").style.display = "block";
+    document.getElementById("exportBtn").style.display = "inline-block";
+  }
+
+  function renderTable(id, data, columns) {
+    const table = document.getElementById(id);
+    const header = `<thead><tr><th>名称</th>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>`;
+    const body = Object.entries(data).map(([name, row]) => {
+      return `<tr><td>${name}</td>${columns.map(c => `<td>${row[c]}</td>`).join('')}</tr>`;
+    }).join('');
+    table.innerHTML = header + `<tbody>${body}</tbody>`;
+  }
+
+  function exportToExcel() {
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.table_to_sheet(document.getElementById("sampleTable"));
+    const ws2 = XLSX.utils.table_to_sheet(document.getElementById("targetTable"));
+    XLSX.utils.book_append_sheet(wb, ws1, "Samples");
+    XLSX.utils.book_append_sheet(wb, ws2, "Targets");
+    XLSX.writeFile(wb, "qPCR试剂用量计算结果.xlsx");
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
